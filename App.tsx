@@ -1,12 +1,18 @@
+import { StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import PhotoScreen from './src/screens/PhotoScreen';
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <PhotoScreen />
-      <StatusBar style="light" />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <PhotoScreen />
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({ root: { flex: 1 } });

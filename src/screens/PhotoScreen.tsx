@@ -1,16 +1,18 @@
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { t } from '../i18n/pl';
 import { colors } from '../theme';
-
-type Photo = { uri: string; width: number; height: number };
+import WallView, { WallViewHandle } from '../editor/WallView';
+import { prepareWallImage, WallImage } from '../editor/prepareWallImage';
 
 export default function PhotoScreen() {
   const insets = useSafeAreaInsets();
-  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [wall, setWall] = useState<WallImage | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const wallRef = useRef<WallViewHandle>(null);
 
   async function pickFromGallery() {
     setError(null);
@@ -20,25 +22,34 @@ export default function PhotoScreen() {
         quality: 1,
       });
       if (result.canceled) return;
-      const { uri, width, height } = result.assets[0];
-      setPhoto({ uri, width, height });
+      setBusy(true);
+      setWall(await prepareWallImage(result.assets[0].uri));
     } catch {
       setError(t.photo.pickError);
+    } finally {
+      setBusy(false);
     }
   }
 
-  if (!photo) {
+  if (!wall) {
     return (
       <View style={[styles.empty, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <Text style={styles.title}>{t.photo.title}</Text>
         <Text style={styles.subtitle}>{t.photo.subtitle}</Text>
-        <Pressable
-          style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
-          onPress={pickFromGallery}
-          accessibilityRole="button"
-        >
-          <Text style={styles.primaryText}>{t.photo.pickFromGallery}</Text>
-        </Pressable>
+        {busy ? (
+          <View style={styles.busy}>
+            <ActivityIndicator color={colors.accent} />
+            <Text style={styles.busyText}>{t.photo.preparing}</Text>
+          </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+            onPress={pickFromGallery}
+            accessibilityRole="button"
+          >
+            <Text style={styles.primaryText}>{t.photo.pickFromGallery}</Text>
+          </Pressable>
+        )}
         {error && <Text style={styles.error}>{error}</Text>}
       </View>
     );
@@ -46,15 +57,26 @@ export default function PhotoScreen() {
 
   return (
     <View style={styles.full}>
-      {/* contain: całe zdjęcie widoczne, bez przycinania – potrzebne do zaznaczania chwytów */}
-      <Image source={{ uri: photo.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
-      <View style={[styles.bar, { paddingBottom: insets.bottom + 12 }]}>
+      <WallView ref={wallRef} wall={wall} />
+      <View style={[styles.bar, { paddingBottom: insets.bottom + 12 }]} pointerEvents="box-none">
         <Pressable
           style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
           onPress={pickFromGallery}
+          disabled={busy}
           accessibilityRole="button"
         >
-          <Text style={styles.secondaryText}>{t.photo.changePhoto}</Text>
+          {busy ? (
+            <ActivityIndicator color={colors.ink} />
+          ) : (
+            <Text style={styles.secondaryText}>{t.photo.changePhoto}</Text>
+          )}
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
+          onPress={() => wallRef.current?.fit()}
+          accessibilityRole="button"
+        >
+          <Text style={styles.secondaryText}>{t.photo.fitView}</Text>
         </Pressable>
       </View>
     </View>
@@ -79,15 +101,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryText: { color: colors.onAccent, fontSize: 17, fontWeight: '700' },
+  busy: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  busyText: { color: colors.mute, fontSize: 16 },
   error: { color: colors.danger, marginTop: 16, textAlign: 'center' },
   full: { flex: 1, backgroundColor: colors.stage },
-  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
+  bar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
   secondary: {
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 12,
     minHeight: 44,
+    minWidth: 44,
     paddingHorizontal: 18,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   secondaryText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   pressed: { opacity: 0.7 },
