@@ -58,6 +58,11 @@ export type AutoHold = HoldShape & {
   ta: number | null;
   /** mapa geodezyjna – potrzebna, żeby suwak mógł szybko przeliczyć kontur */
   geo: Geo;
+  /**
+   * W miejscu tapnięcia był dużo mniejszy obiekt, ale uznany za otwór po śrubie
+   * (za mały na ekranie przy tym przybliżeniu). Może chodziło o mały stopień – warto przybliżyć.
+   */
+  skippedSmall: boolean;
 };
 
 /* ---------- obraz i przestrzeń Lab ---------- */
@@ -264,10 +269,52 @@ function areaAt(sorted: Float64Array, t: number) {
 }
 
 /**
+ * Przybliżenie widoku: ile punktów ekranu przypada na piksel zdjęcia roboczego.
+ * Domyślnie – typowy widok „dopasuj” na telefonie (zdjęcie 1400 px na ok. 400 pt).
+ */
+export const DEFAULT_SCALE = 0.3;
+
+/**
+ * Średnica (w punktach ekranu), poniżej której mały ciemny obiekt uznajemy za otwór po śrubie.
+ * Mniejszego obiektu nie da się celowo tapnąć palcem; większy – np. mały stopień po przybliżeniu –
+ * użytkownik widzi i tapnął go świadomie.
+ */
+const HOLE_MAX_SCREEN_D = 12;
+
+/** Zaznaczony obszar tyle razy większy od najmniejszego obiektu pod palcem → podpowiedź „przybliż”. */
+const SKIPPED_RATIO = 80;
+
+/** Największe pole (w px zdjęcia), które może być otworem po śrubie przy danym przybliżeniu. */
+function holeArea(img: LabImage, scale: number) {
+  const M = Math.max(img.w, img.h);
+  const onScreen = Math.PI * (HOLE_MAX_SCREEN_D / 2 / scale) ** 2;
+  return { small: Math.min(Math.PI * (M * 0.0045) ** 2, onScreen), dark: Math.min(Math.PI * (M * 0.0055) ** 2, onScreen) };
+}
+
+/**
  * Automatyczny próg: pierwsze „plateau” – obszar przestaje rosnąć, bo region oparł się o krawędź chwytu –
  * albo ostatni próg przed „wybuchem”. Pomija otwory po śrubach, woli chwyt niż paczkę.
  */
-export function autoT(img: LabImage, g: Geo): number | null {
+export function autoT(img: LabImage, g: Geo, scale = DEFAULT_SCALE): number | null {
+  const { ev, tc, A, maxA } = thresholdEvents(img, g);
+  const smallA = holeArea(img, scale).small;
+  if (!ev.length) return tc;
+  let best = ev[0];
+  // pierwszy znaleziony obiekt to otwór po śrubie? weź następny, rozsądnej wielkości
+  if (A(best) < smallA) {
+    const nx = ev.find((e) => A(e) >= smallA && A(e) <= Math.min(maxA, A(best) * 120));
+    if (nx != null) best = nx;
+  }
+  // wolimy chwyt niż całą paczkę
+  if (tc != null && tc < best && A(tc) >= smallA && A(best) > 4 * A(tc)) return tc;
+  return best;
+}
+
+/**
+ * Kandydaci na próg: ev – progi, przy których region oparł się o krawędź (rosnąco),
+ * tc – pierwsza słabsza krawędź (albo null).
+ */
+export function thresholdEvents(img: LabImage, g: Geo) {
   const M = Math.max(img.w, img.h),
     minA = Math.PI * (M * 0.0028) ** 2,
     smallA = Math.PI * (M * 0.0045) ** 2,
@@ -303,16 +350,7 @@ export function autoT(img: LabImage, g: Geo): number | null {
   }
   endRun();
   ev.sort((a, b) => a - b);
-  if (!ev.length) return tc;
-  let best = ev[0];
-  // pierwszy znaleziony obiekt to otwór po śrubie? weź następny, rozsądnej wielkości
-  if (A(best) < smallA) {
-    const nx = ev.find((e) => A(e) >= smallA && A(e) <= Math.min(maxA, A(best) * 120));
-    if (nx != null) best = nx;
-  }
-  // wolimy chwyt niż całą paczkę
-  if (tc != null && tc < best && A(tc) >= smallA && A(best) > 4 * A(tc)) return tc;
-  return best;
+  return { ev, tc: tc as number | null, A, minA, smallA, maxA };
 }
 
 /* ---------- region i jego ocena ---------- */
@@ -413,13 +451,22 @@ function bandL(img: LabImage, g: Geo, r: Region, w: number) {
  * Wybór regionu: najpierw ziarno w punkcie tapnięcia;
  * pierścień ziaren tylko gdy tapnięcie trafiło w otwór/śrubę.
  */
-export function segment(img: LabImage, x: number, y: number): { g: Geo; t: number | null } {
+export function segment(
+  img: LabImage,
+  x: number,
+  y: number,
+  scale = DEFAULT_SCALE,
+): { g: Geo; t: number | null; firstArea: number | null } {
   const M = Math.max(img.w, img.h),
     rho = Math.max(5, Math.round(M * 0.008));
   const g0 = geodesic(img, x, y),
-    t0 = autoT(img, g0),
+    t0 = autoT(img, g0, scale),
     r0 = t0 == null ? null : region(g0, t0);
-  if (r0 && (r0.cnt >= Math.PI * (M * 0.0055) ** 2 || meanL(img, g0, r0) > bandL(img, g0, r0, 3) - 15)) return { g: g0, t: t0 };
+  // pole najmniejszego obiektu w punkcie tapnięcia – do podpowiedzi „przybliż”
+  const e0 = thresholdEvents(img, g0),
+    firstArea = e0.ev.length ? e0.A(e0.ev[0]) : null;
+  // mały i ciemniejszy od otoczenia = pewnie otwór/śruba → spróbuj pierścienia ziaren wokół
+  if (r0 && (r0.cnt >= holeArea(img, scale).dark || meanL(img, g0, r0) > bandL(img, g0, r0, 3) - 15)) return { g: g0, t: t0, firstArea };
   const c: { g: Geo; t: number; r: Region }[] = [];
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2,
@@ -435,16 +482,16 @@ export function segment(img: LabImage, x: number, y: number): { g: Geo; t: numbe
     )
       continue;
     const g = geodesic(img, sx, sy),
-      t = autoT(img, g);
+      t = autoT(img, g, scale);
     if (t == null) continue;
     const r = region(g, t);
     if (encloses(g, r, x, y) && meanL(img, g, r) > bandL(img, g, r, 3) - 15 && r.cnt <= Math.PI * (M * 0.05) ** 2) c.push({ g, t, r });
   }
   if (c.length) {
     c.sort((a, b) => a.r.cnt - b.r.cnt);
-    return { g: c[0].g, t: c[0].t };
+    return { g: c[0].g, t: c[0].t, firstArea };
   }
-  return { g: g0, t: t0 };
+  return { g: g0, t: t0, firstArea };
 }
 
 /* ---------- kontur ---------- */
@@ -624,13 +671,23 @@ export function shapeAt(img: LabImage, g: Geo, t: number | null, x: number, y: n
 /**
  * Tapnięcie w (x, y) we współrzędnych zdjęcia → chwyt.
  * t – próg z suwaka (np. przy wczytywaniu zapisanego balda); null = automatyczny.
+ * scale – przybliżenie widoku w chwili tapnięcia (punkty ekranu na piksel zdjęcia).
  */
-export function holdAt(img: LabImage, x: number, y: number, t: number | null = null): AutoHold {
+export function holdAt(
+  img: LabImage,
+  x: number,
+  y: number,
+  { t = null, scale = DEFAULT_SCALE }: { t?: number | null; scale?: number } = {},
+): AutoHold {
   x = Math.max(0, Math.min(img.w - 1, Math.round(x)));
   y = Math.max(0, Math.min(img.h - 1, Math.round(y)));
-  const r = segment(img, x, y);
+  const r = segment(img, x, y, scale);
   const tt = t == null ? r.t : t;
-  return { ...shapeAt(img, r.g, tt, x, y), x, y, t: tt, ta: r.t, geo: r.g };
+  const shape = shapeAt(img, r.g, tt, x, y);
+  // śruba w chwycie to ok. 1/35–1/70 jego pola; stopień na paczce – ok. 1/80–1/160 paczki
+  const area = shape.mask.reduce((a, v) => a + v, 0);
+  const skippedSmall = r.firstArea != null && area > SKIPPED_RATIO * r.firstArea;
+  return { ...shape, x, y, t: tt, ta: r.t, geo: r.g, skippedSmall };
 }
 
 /** Suwak: przelicza kontur istniejącego chwytu dla nowego progu (bez ponownego Dijkstry). */

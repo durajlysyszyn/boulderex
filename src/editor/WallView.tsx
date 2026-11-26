@@ -34,8 +34,8 @@ type Props = {
   height: number;
   holds: Hold[];
   activeId: number | null;
-  /** tapnięcie we współrzędnych zdjęcia */
-  onTap: (ix: number, iy: number) => void;
+  /** tapnięcie we współrzędnych zdjęcia; scale – punkty ekranu na piksel zdjęcia */
+  onTap: (ix: number, iy: number, scale: number) => void;
 };
 
 /**
@@ -108,7 +108,7 @@ const WallView = forwardRef<WallViewHandle, Props>(function WallView(
     maxDuration: 700,
     onActivate: (e) => {
       if (e.numberOfPointers !== 1) return;
-      onTapRef.current((e.x - tx.value) / s.value, (e.y - ty.value) / s.value);
+      onTapRef.current((e.x - tx.value) / s.value, (e.y - ty.value) / s.value, s.value);
     },
   });
 

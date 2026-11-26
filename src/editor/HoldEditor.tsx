@@ -61,7 +61,7 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
 
   // logika z prototypu: tapnięcie w inny chwyt – wybierz go; w wybrany – ten sam typ usuwa, inny zmienia typ;
   // poza chwytami – nowy chwyt
-  const onTap = (ix: number, iy: number) => {
+  const onTap = (ix: number, iy: number, scale: number) => {
     if (!lab || ix < 0 || iy < 0 || ix >= lab.w || iy >= lab.h) return;
     if (toast === t.editor.hint) setToast(null);
     const hit = [...holds].reverse().find((h) => inShape(h.shape, ix, iy));
@@ -79,17 +79,19 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
       return;
     }
     const t0 = performance.now();
-    const shape = holdAt(lab, ix, iy);
+    const shape = holdAt(lab, ix, iy, { scale });
     const area = shape.mask.reduce((a, v) => a + v, 0);
     // współrzędne w zdjęciu roboczym (lab.w × lab.h) – pozwalają odtworzyć tapnięcie w testach
     console.log(
       `[chwyty] tapnięcie (${Math.round(ix)}, ${Math.round(iy)}) w ${lab.w}×${lab.h}: ` +
-        `${Math.round(performance.now() - t0)} ms, próg ${shape.t == null ? '–' : shape.t.toFixed(2)}, pole ${area} px`,
+        `${Math.round(performance.now() - t0)} ms, próg ${shape.t == null ? '–' : shape.t.toFixed(2)}, pole ${area} px, ` +
+        `przybliżenie ${scale.toFixed(2)}`,
     );
     const h: Hold = { id: nextId.current++, type: mode, shape, path: outlinePath(shape.outline) };
     commit([...holds, h]);
     setActiveId(h.id);
     if (shape.ta == null) setToast(t.editor.noEdge);
+    else if (shape.skippedSmall) setToast(t.editor.zoomForSmall);
   };
 
   const doUndo = () => {

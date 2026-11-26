@@ -17,6 +17,7 @@ export const pl = {
     analyzing: 'Analizuję zdjęcie…',
     hint: 'Tapnij chwyt – kontur dobierze się sam',
     noEdge: 'Nie widzę tu krawędzi chwytu – przybliż i spróbuj jeszcze raz',
+    zoomForSmall: 'Chodziło o mały stopień? Przybliż i tapnij jeszcze raz',
     undo: 'Cofnij',
     clear: 'Wyczyść',
     gallery: 'Galeria',

@@ -44,3 +44,7 @@ yarn-error.*
 .env
 .env.*
 !.env.example
+
+# testowe zdjęcia: do repozytorium tylko pomniejszone kopie (*-1400.jpg)
+test/zdjecia/*
+!test/zdjecia/*-1400.jpg
