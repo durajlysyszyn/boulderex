@@ -109,14 +109,19 @@ export function rgbaToLab(rgba: ArrayLike<number>, w: number, h: number): LabIma
 /* ---------- mapa geodezyjna ---------- */
 
 export const GMAX = 60;
+
+/** Promień ramki obliczeń w punktach ekranu (ok. pół szerokości ekranu telefonu z zapasem). */
+const VIEW_RADIUS = 250;
 const NOISE = 1.3;
 const STEP = 0.07;
 
 /** Dijkstra od tapnięcia; koszt kroku = różnica koloru ponad poziom szumu. */
-export function geodesic(img: LabImage, x: number, y: number): Geo {
+export function geodesic(img: LabImage, x: number, y: number, scale = DEFAULT_SCALE): Geo {
   const { w: W, h: H, lab } = img;
+  // ramka: 12% zdjęcia, ale po przybliżeniu nie więcej niż to, co widać na ekranie
+  // (chwyt większy niż ekran nie jest tym, w co celowano – a liczenie jest dużo szybsze)
   const M = Math.max(W, H),
-    R = Math.round(M * 0.12);
+    R = Math.min(Math.round(M * 0.12), Math.round(VIEW_RADIUS / scale));
   const x0 = Math.max(0, x - R),
     y0 = Math.max(0, y - R),
     x1 = Math.min(W - 1, x + R),
@@ -447,9 +452,48 @@ function bandL(img: LabImage, g: Geo, r: Region, w: number) {
   return n ? s / n : 0;
 }
 
+/** Różnica koloru (jak w koszcie kroku: jasność z wagą 0,8) między dwoma pikselami. */
+function labDist(img: LabImage, x1: number, y1: number, x2: number, y2: number) {
+  const cl = (v: number, m: number) => Math.max(0, Math.min(m - 1, v));
+  const a = (cl(y1, img.h) * img.w + cl(x1, img.w)) * 3,
+    b = (cl(y2, img.h) * img.w + cl(x2, img.w)) * 3,
+    L = img.lab;
+  const dL = L[a] - L[b],
+    da = L[a + 1] - L[b + 1],
+    db = L[a + 2] - L[b + 2];
+  return Math.sqrt(0.8 * dL * dL + da * da + db * db);
+}
+
+/** Siła krawędzi w punkcie: największa różnica koloru między sąsiadami po przeciwnych stronach. */
+function edgeAt(img: LabImage, x: number, y: number) {
+  return Math.max(
+    labDist(img, x - 1, y, x + 1, y),
+    labDist(img, x, y - 1, x, y + 1),
+    labDist(img, x - 1, y - 1, x + 1, y + 1),
+    labDist(img, x - 1, y + 1, x + 1, y - 1),
+  );
+}
+
+/** Tapnięcie w krawędź: powyżej tej różnicy koloru między sąsiadami punkt startu leży na granicy obiektów. */
+const EDGE = 12;
+/** Jak daleko (w punktach ekranu) szukać jednolitego miejsca obok krawędzi – ok. niedokładność palca. */
+const FINGER = 16;
+
+/** Czy region dochodzi do punktu (x, y) na odległość ≤ d px. */
+function near(g: Geo, r: Region, x: number, y: number, d: number) {
+  for (let yy = y - d; yy <= y + d; yy++)
+    for (let xx = x - d; xx <= x + d; xx++) {
+      const lx = xx - g.x0,
+        ly = yy - g.y0;
+      if (lx >= 0 && ly >= 0 && lx < g.bw && ly < g.bh && r.b[ly * g.bw + lx]) return true;
+    }
+  return false;
+}
+
 /**
- * Wybór regionu: najpierw ziarno w punkcie tapnięcia;
- * pierścień ziaren tylko gdy tapnięcie trafiło w otwór/śrubę.
+ * Wybór regionu: najpierw ziarno w punkcie tapnięcia.
+ * Gdy tapnięcie trafiło w krawędź (granica stopień–paczka), próbujemy też jednolitych miejsc tuż obok
+ * i bierzemy najmniejszy obiekt przy palcu. Pierścień ziaren – gdy tapnięcie trafiło w otwór/śrubę.
  */
 export function segment(
   img: LabImage,
@@ -458,15 +502,54 @@ export function segment(
   scale = DEFAULT_SCALE,
 ): { g: Geo; t: number | null; firstArea: number | null } {
   const M = Math.max(img.w, img.h),
-    rho = Math.max(5, Math.round(M * 0.008));
-  const g0 = geodesic(img, x, y),
+    rho = Math.max(5, Math.round(M * 0.008)),
+    maxA = Math.PI * (M * 0.05) ** 2;
+  const g0 = geodesic(img, x, y, scale),
     t0 = autoT(img, g0, scale),
     r0 = t0 == null ? null : region(g0, t0);
   // pole najmniejszego obiektu w punkcie tapnięcia – do podpowiedzi „przybliż”
   const e0 = thresholdEvents(img, g0),
     firstArea = e0.ev.length ? e0.A(e0.ev[0]) : null;
-  // mały i ciemniejszy od otoczenia = pewnie otwór/śruba → spróbuj pierścienia ziaren wokół
-  if (r0 && (r0.cnt >= holeArea(img, scale).dark || meanL(img, g0, r0) > bandL(img, g0, r0, 3) - 15)) return { g: g0, t: t0, firstArea };
+  // mały i ciemniejszy od otoczenia = pewnie otwór/śruba
+  const holeLike = (g: Geo, r: Region) => r.cnt < holeArea(img, scale).dark && meanL(img, g, r) <= bandL(img, g, r, 3) - 15;
+
+  if (edgeAt(img, x, y) >= EDGE) {
+    const c: { g: Geo; t: number; r: Region }[] = [];
+    if (r0 && t0 != null && !holeLike(g0, r0)) c.push({ g: g0, t: t0, r: r0 });
+    const reach = Math.max(2, Math.min(rho, Math.round(FINGER / scale)));
+    // obiekty leżą po obu stronach krawędzi: szukamy w poprzek niej (kierunek największej zmiany koloru)
+    const axes = [
+      [0, labDist(img, x - 1, y, x + 1, y)],
+      [Math.PI / 2, labDist(img, x, y - 1, x, y + 1)],
+      [Math.PI / 4, labDist(img, x - 1, y - 1, x + 1, y + 1)],
+      [-Math.PI / 4, labDist(img, x - 1, y + 1, x + 1, y - 1)],
+    ].sort((p, q) => q[1] - p[1]);
+    for (const a of [axes[0][0], axes[0][0] + Math.PI]) {
+      // w tym kierunku, w zasięgu palca: najbardziej jednolite miejsce (najsłabsza krawędź)
+      let best: [number, number, number] | null = null;
+      for (let d = 1; d <= reach; d++) {
+        const sx = Math.round(x + Math.cos(a) * d),
+          sy = Math.round(y + Math.sin(a) * d);
+        if (sx < 1 || sy < 1 || sx >= img.w - 1 || sy >= img.h - 1) break;
+        const e = edgeAt(img, sx, sy);
+        if (e < EDGE && (!best || e < best[2])) best = [sx, sy, e];
+      }
+      if (!best) continue;
+      const [sx, sy] = best;
+      if (c.some((o) => near(o.g, o.r, sx, sy, 0))) continue;
+      const g = geodesic(img, sx, sy, scale),
+        t = autoT(img, g, scale);
+      if (t == null) continue;
+      const r = region(g, t);
+      if (near(g, r, x, y, reach) && !holeLike(g, r) && r.cnt <= maxA) c.push({ g, t, r });
+    }
+    if (c.length) {
+      c.sort((a, b) => a.r.cnt - b.r.cnt);
+      return { g: c[0].g, t: c[0].t, firstArea };
+    }
+  }
+
+  if (r0 && !holeLike(g0, r0)) return { g: g0, t: t0, firstArea };
   const c: { g: Geo; t: number; r: Region }[] = [];
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2,
@@ -481,11 +564,11 @@ export function segment(
       })
     )
       continue;
-    const g = geodesic(img, sx, sy),
+    const g = geodesic(img, sx, sy, scale),
       t = autoT(img, g, scale);
     if (t == null) continue;
     const r = region(g, t);
-    if (encloses(g, r, x, y) && meanL(img, g, r) > bandL(img, g, r, 3) - 15 && r.cnt <= Math.PI * (M * 0.05) ** 2) c.push({ g, t, r });
+    if (encloses(g, r, x, y) && meanL(img, g, r) > bandL(img, g, r, 3) - 15 && r.cnt <= maxA) c.push({ g, t, r });
   }
   if (c.length) {
     c.sort((a, b) => a.r.cnt - b.r.cnt);
