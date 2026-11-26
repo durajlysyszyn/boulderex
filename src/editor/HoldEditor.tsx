@@ -12,6 +12,7 @@ import {
   lastAutoPart,
   makeHold,
   withPart,
+  withNote,
   withPartThreshold,
   withType,
   type Hold,
@@ -19,6 +20,7 @@ import {
   type HoldType,
 } from './holds';
 import type { WallImage } from './prepareWallImage';
+import NoteSheet from './NoteSheet';
 import { labFromSkImage } from './wallPixels';
 import WallView, { type WallViewHandle } from './WallView';
 
@@ -168,6 +170,13 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
     setSliderRev((r) => r + 1);
   };
 
+  const [noteOpen, setNoteOpen] = useState(false);
+  const saveNote = (note: string) => {
+    setNoteOpen(false);
+    if (!active || (active.note ?? '') === note.trim()) return;
+    commit(holds.map((h) => (h === active ? withNote(h, note) : h)));
+  };
+
   const removeActive = () => {
     if (!active) return;
     commit(holds.filter((h) => h !== active));
@@ -254,7 +263,7 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
       </View>
 
       <View style={[styles.panel, { paddingBottom: insets.bottom + 10 }]}>
-        {/* zaznaczony chwyt: kontur, dołącz, usuń */}
+        {/* zaznaczony chwyt: kontur; dołącz, komentarz, usuń; treść komentarza */}
         <View style={styles.holdBar}>
           {active ? (
             <>
@@ -274,13 +283,25 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
                 thumbTintColor={autoPart ? colors.ink : colors.mute}
               />
               <SmallButton label={t.editor.auto} onPress={resetAuto} disabled={!autoPart || autoPart.t === autoPart.ta} />
-              <SmallButton label={t.editor.join} onPress={toggleJoin} on={joining} />
-              <SmallButton label={t.editor.remove} onPress={removeActive} />
             </>
           ) : (
             <Text style={styles.holdHint}>{lasso ? t.editor.barHintLasso : t.editor.barHint}</Text>
           )}
         </View>
+        {active && (
+          <View style={styles.holdActs}>
+            <SmallButton label={t.editor.join} onPress={toggleJoin} on={joining} grow />
+            <SmallButton label={t.editor.note} onPress={() => setNoteOpen(true)} on={!!active.note} grow />
+            <SmallButton label={t.editor.remove} onPress={removeActive} grow />
+          </View>
+        )}
+        {active?.note ? (
+          <Pressable onPress={() => setNoteOpen(true)} accessibilityRole="button" accessibilityHint={t.editor.noteEdit}>
+            <Text style={styles.noteText} numberOfLines={2}>
+              „{active.note}”
+            </Text>
+          </Pressable>
+        ) : null}
         <View style={styles.modes}>
           {HOLD_TYPES.map((k) => {
             const on = k === mode;
@@ -306,6 +327,7 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
           <Action label={t.editor.clear} onPress={doClear} disabled={!holds.length} />
         </View>
       </View>
+      <NoteSheet visible={noteOpen && !!active} note={active?.note ?? ''} onSave={saveNote} onClose={() => setNoteOpen(false)} />
     </View>
   );
 }
@@ -323,12 +345,24 @@ function Action({ label, onPress, disabled, busy }: { label: string; onPress: ()
   );
 }
 
-function SmallButton({ label, onPress, disabled, on }: { label: string; onPress: () => void; disabled?: boolean; on?: boolean }) {
+function SmallButton({
+  label,
+  onPress,
+  disabled,
+  on,
+  grow,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  on?: boolean;
+  grow?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [styles.small, on && styles.smallOn, disabled && styles.disabled, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.small, grow && styles.grow, on && styles.smallOn, disabled && styles.disabled, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityState={{ selected: !!on, disabled: !!disabled }}
     >
@@ -395,6 +429,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   smallOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  grow: { flex: 1, alignItems: 'center' },
+  holdActs: { flexDirection: 'row', gap: 6 },
+  noteText: { color: colors.ink, fontSize: 14, fontStyle: 'italic', paddingHorizontal: 4 },
   smallText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   smallTextOn: { color: colors.onAccent },
   modes: { flexDirection: 'row', gap: 6 },

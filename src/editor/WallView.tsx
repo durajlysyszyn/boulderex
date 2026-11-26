@@ -266,6 +266,11 @@ const WallView = forwardRef<WallViewHandle, Props>(function WallView(
             <Path path={closePath} style="stroke" strokeWidth={strokeW} color="rgba(255,255,255,0.7)" />
           </Group>
           {holds
+            .filter((h) => h.note)
+            .map((h) => (
+              <NoteBadge key={`n${h.id}`} hold={h} s={s} tx={tx} ty={ty} />
+            ))}
+          {holds
             .filter((h) => h.type === 'start' || h.type === 'top')
             .map((h) => (
               <HoldLabel key={h.id} hold={h} s={s} tx={tx} ty={ty} font={labelFont} />
@@ -302,6 +307,36 @@ function HoldLabel({
     <Group>
       <RoundedRect x={x} y={y} width={tw} height={16} r={4} color={colors.hold[hold.type]} />
       <Text x={textX} y={textY} text={text} font={font} color="#0d0d0d" />
+    </Group>
+  );
+}
+
+/** Dymek przy chwycie z komentarzem (prawy górny róg) – stałej wielkości na ekranie. */
+const BUBBLE = (() => {
+  // dymek 18×14 z ogonkiem w lewo-dół, początek w (0, 0)
+  const b = Skia.PathBuilder.Make();
+  b.addRRect(Skia.RRectXY(Skia.XYWHRect(0, 0, 18, 13), 4, 4));
+  b.moveTo(3, 11);
+  b.lineTo(1, 17);
+  b.lineTo(8, 12.5);
+  b.close();
+  return b.detach();
+})();
+
+function NoteBadge({ hold, s, tx, ty }: { hold: Hold; s: SharedValue<number>; tx: SharedValue<number>; ty: SharedValue<number> }) {
+  const right = hold.box.x + hold.box.w,
+    top = hold.box.y;
+  const transform = useDerivedValue(() => [
+    { translateX: tx.value + right * s.value - 6 },
+    { translateY: Math.max(2, ty.value + top * s.value - 12) },
+  ]);
+  return (
+    <Group transform={transform}>
+      <Path path={BUBBLE} color="rgba(0,0,0,0.55)" style="stroke" strokeWidth={2} />
+      <Path path={BUBBLE} color="#f3f2ee" />
+      {[5, 9, 13].map((cx) => (
+        <RoundedRect key={cx} x={cx - 1.1} y={5.4} width={2.2} height={2.2} r={1.1} color="#111214" />
+      ))}
     </Group>
   );
 }

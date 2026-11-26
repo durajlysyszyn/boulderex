@@ -20,7 +20,12 @@ export type Hold = {
   path: SkPath;
   /** prostokąt otaczający – do położenia napisów START/TOP */
   box: { x: number; y: number; w: number; h: number };
+  /** komentarz autora, np. „w wariancie trudniejszym bez tego chwytu”, „tylko śliska część” */
+  note?: string;
 };
+
+/** Najdłuższy komentarz do chwytu. */
+export const NOTE_MAX = 200;
 
 /** Wygładzony obrys → gładka krzywa przez środki boków (jak w prototypie). */
 function addOutline(b: ReturnType<typeof Skia.PathBuilder.Make>, p: Point[]) {
@@ -40,7 +45,7 @@ function addOutline(b: ReturnType<typeof Skia.PathBuilder.Make>, p: Point[]) {
   b.close();
 }
 
-export function makeHold(id: number, type: HoldType, parts: HoldPart[]): Hold {
+export function makeHold(id: number, type: HoldType, parts: HoldPart[], note?: string): Hold {
   const b = Skia.PathBuilder.Make();
   let x0 = Infinity,
     y0 = Infinity,
@@ -53,11 +58,18 @@ export function makeHold(id: number, type: HoldType, parts: HoldPart[]): Hold {
     x1 = Math.max(x1, p.bx + p.w);
     y1 = Math.max(y1, p.by + p.h);
   }
-  return { id, type, parts, path: b.detach(), box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+  return { id, type, parts, path: b.detach(), box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, ...(note ? { note } : {}) };
 }
 
 export const withType = (h: Hold, type: HoldType): Hold => ({ ...h, type });
-export const withPart = (h: Hold, part: HoldPart): Hold => makeHold(h.id, h.type, [...h.parts, part]);
+export const withPart = (h: Hold, part: HoldPart): Hold => makeHold(h.id, h.type, [...h.parts, part], h.note);
+
+/** Pusty / same spacje = brak komentarza. */
+export function withNote(h: Hold, note: string): Hold {
+  const n = note.trim().slice(0, NOTE_MAX);
+  const { note: _old, ...rest } = h;
+  return n ? { ...rest, note: n } : rest;
+}
 
 /** Ostatnia część zaznaczona tapnięciem – tę zmienia suwak konturu. */
 export function lastAutoPart(h: Hold): AutoHold | null {
@@ -75,7 +87,7 @@ export function withPartThreshold(img: LabImage, h: Hold, t: number): Hold {
   const i = h.parts.lastIndexOf(last);
   const parts = [...h.parts];
   parts[i] = withThreshold(img, last, t);
-  return makeHold(h.id, h.type, parts);
+  return makeHold(h.id, h.type, parts, h.note);
 }
 
 export const inHold = (h: Hold, ix: number, iy: number) => h.parts.some((p) => inShape(p, ix, iy));
