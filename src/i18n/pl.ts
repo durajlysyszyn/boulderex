@@ -8,6 +8,25 @@ export const pl = {
     fitView: 'Dopasuj widok',
     preparing: 'Przygotowuję zdjęcie…',
     pickError: 'Nie udało się wczytać zdjęcia. Spróbuj ponownie.',
+    replaceTitle: 'Nowe zdjęcie?',
+    replaceText: 'Zaznaczone chwyty zostaną usunięte.',
+    replace: 'Zastąp',
+    cancel: 'Anuluj',
+  },
+  editor: {
+    analyzing: 'Analizuję zdjęcie…',
+    hint: 'Tapnij chwyt – kontur dobierze się sam',
+    noEdge: 'Nie widzę tu krawędzi chwytu – przybliż i spróbuj jeszcze raz',
+    undo: 'Cofnij',
+    clear: 'Wyczyść',
+    gallery: 'Galeria',
+    fit: 'Dopasuj',
+    holdTypes: {
+      start: 'Start',
+      hand: 'Ręka',
+      foot: 'Stopa',
+      top: 'Top',
+    },
   },
 } as const;
 

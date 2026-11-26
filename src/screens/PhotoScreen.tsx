@@ -1,18 +1,17 @@
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { t } from '../i18n/pl';
 import { colors } from '../theme';
-import WallView, { WallViewHandle } from '../editor/WallView';
-import { prepareWallImage, WallImage } from '../editor/prepareWallImage';
+import HoldEditor from '../editor/HoldEditor';
+import { prepareWallImage, type WallImage } from '../editor/prepareWallImage';
 
 export default function PhotoScreen() {
   const insets = useSafeAreaInsets();
   const [wall, setWall] = useState<WallImage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const wallRef = useRef<WallViewHandle>(null);
 
   async function pickFromGallery() {
     setError(null);
@@ -25,60 +24,42 @@ export default function PhotoScreen() {
       setBusy(true);
       setWall(await prepareWallImage(result.assets[0].uri));
     } catch {
-      setError(t.photo.pickError);
+      if (wall) Alert.alert(t.photo.pickError);
+      else setError(t.photo.pickError);
     } finally {
       setBusy(false);
     }
   }
 
-  if (!wall) {
-    return (
-      <View style={[styles.empty, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <Text style={styles.title}>{t.photo.title}</Text>
-        <Text style={styles.subtitle}>{t.photo.subtitle}</Text>
-        {busy ? (
-          <View style={styles.busy}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={styles.busyText}>{t.photo.preparing}</Text>
-          </View>
-        ) : (
-          <Pressable
-            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
-            onPress={pickFromGallery}
-            accessibilityRole="button"
-          >
-            <Text style={styles.primaryText}>{t.photo.pickFromGallery}</Text>
-          </Pressable>
-        )}
-        {error && <Text style={styles.error}>{error}</Text>}
-      </View>
-    );
+  function changePhoto(hasHolds: boolean) {
+    if (!hasHolds) return void pickFromGallery();
+    Alert.alert(t.photo.replaceTitle, t.photo.replaceText, [
+      { text: t.photo.cancel, style: 'cancel' },
+      { text: t.photo.replace, style: 'destructive', onPress: () => void pickFromGallery() },
+    ]);
   }
 
+  if (wall) return <HoldEditor wall={wall} onChangePhoto={changePhoto} changingPhoto={busy} />;
+
   return (
-    <View style={styles.full}>
-      <WallView ref={wallRef} wall={wall} />
-      <View style={[styles.bar, { paddingBottom: insets.bottom + 12 }]} pointerEvents="box-none">
+    <View style={[styles.empty, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <Text style={styles.title}>{t.photo.title}</Text>
+      <Text style={styles.subtitle}>{t.photo.subtitle}</Text>
+      {busy ? (
+        <View style={styles.busy}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={styles.busyText}>{t.photo.preparing}</Text>
+        </View>
+      ) : (
         <Pressable
-          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
           onPress={pickFromGallery}
-          disabled={busy}
           accessibilityRole="button"
         >
-          {busy ? (
-            <ActivityIndicator color={colors.ink} />
-          ) : (
-            <Text style={styles.secondaryText}>{t.photo.changePhoto}</Text>
-          )}
+          <Text style={styles.primaryText}>{t.photo.pickFromGallery}</Text>
         </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
-          onPress={() => wallRef.current?.fit()}
-          accessibilityRole="button"
-        >
-          <Text style={styles.secondaryText}>{t.photo.fitView}</Text>
-        </Pressable>
-      </View>
+      )}
+      {error && <Text style={styles.error}>{error}</Text>}
     </View>
   );
 }
@@ -104,25 +85,5 @@ const styles = StyleSheet.create({
   busy: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10 },
   busyText: { color: colors.mute, fontSize: 16 },
   error: { color: colors.danger, marginTop: 16, textAlign: 'center' },
-  full: { flex: 1, backgroundColor: colors.stage },
-  bar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  secondary: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 12,
-    minHeight: 44,
-    minWidth: 44,
-    paddingHorizontal: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  secondaryText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   pressed: { opacity: 0.7 },
 });
