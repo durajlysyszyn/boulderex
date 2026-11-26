@@ -80,7 +80,12 @@ export default function HoldEditor({ wall, onChangePhoto, changingPhoto }: Props
     }
     const t0 = performance.now();
     const shape = holdAt(lab, ix, iy);
-    console.log(`[chwyty] tapnięcie: ${Math.round(performance.now() - t0)} ms`);
+    const area = shape.mask.reduce((a, v) => a + v, 0);
+    // współrzędne w zdjęciu roboczym (lab.w × lab.h) – pozwalają odtworzyć tapnięcie w testach
+    console.log(
+      `[chwyty] tapnięcie (${Math.round(ix)}, ${Math.round(iy)}) w ${lab.w}×${lab.h}: ` +
+        `${Math.round(performance.now() - t0)} ms, próg ${shape.t == null ? '–' : shape.t.toFixed(2)}, pole ${area} px`,
+    );
     const h: Hold = { id: nextId.current++, type: mode, shape, path: outlinePath(shape.outline) };
     commit([...holds, h]);
     setActiveId(h.id);
