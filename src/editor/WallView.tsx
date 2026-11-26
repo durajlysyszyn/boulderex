@@ -22,6 +22,7 @@ import {
   useTapGesture,
 } from 'react-native-gesture-handler';
 import { useDerivedValue, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import type { Point } from '../holds/segmentation';
 import { colors } from '../theme';
 import { unionPath, type Hold } from './holds';
@@ -102,14 +103,6 @@ const WallView = forwardRef<WallViewHandle, Props>(function WallView(
   useEffect(() => fit(false), [fit]);
   useImperativeHandle(ref, () => ({ fit: () => fit(true) }), [fit]);
 
-  // tryb obrysu: przesuwanie wymaga dwóch palców, rysowanie jest włączone
-  const navMinPointers = useSharedValue(1);
-  const drawEnabled = useSharedValue(false);
-  useEffect(() => {
-    navMinPointers.value = lasso ? 2 : 1;
-    drawEnabled.value = lasso;
-  }, [lasso, navMinPointers, drawEnabled]);
-
   const pinch = usePinchGesture({
     onUpdate: (e) => {
       'worklet';
@@ -122,44 +115,68 @@ const WallView = forwardRef<WallViewHandle, Props>(function WallView(
     },
   });
 
+  /*
+   * Jeden gest przeciągania do przesuwania i rysowania. Tryb ustala się w chwili startu gestu,
+   * na podstawie aktualnego trybu „Obrysuj” i liczby palców (odczyt w wątku gestów – zawsze aktualny):
+   *   „Obrysuj” + jeden palec → rysowanie; inaczej → przesuwanie.
+   * Drugi palec w trakcie rysowania przerywa obrys i przechodzi w przesuwanie.
+   */
+  const lassoOn = useSharedValue(lasso);
+  useEffect(() => {
+    lassoOn.value = lasso;
+  }, [lasso, lassoOn]);
+  const drawing = useSharedValue(false);
+  // obrys palcem – punkty we współrzędnych zdjęcia [x0, y0, x1, y1, …]
+  const stroke = useSharedValue<number[]>([]);
+
+  const onStrokeRef = useRef(onStroke);
+  onStrokeRef.current = onStroke;
+  const finishStroke = useCallback((p: number[]) => {
+    const pts: Point[] = [];
+    for (let i = 0; i < p.length; i += 2) pts.push([p[i], p[i + 1]]);
+    onStrokeRef.current(pts);
+  }, []);
+
   const pan = usePanGesture({
     averageTouches: true,
-    minPointers: navMinPointers,
+    minDistance: 4,
+    onActivate: (e) => {
+      'worklet';
+      if (lassoOn.value && e.numberOfPointers === 1) {
+        drawing.value = true;
+        // początek obrysu tam, gdzie palec dotknął (gest startuje dopiero po kilku punktach ruchu)
+        const x0 = (e.x - e.translationX - tx.value) / s.value,
+          y0 = (e.y - e.translationY - ty.value) / s.value;
+        stroke.value = [x0, y0, (e.x - tx.value) / s.value, (e.y - ty.value) / s.value];
+      } else {
+        drawing.value = false;
+      }
+    },
     onUpdate: (e) => {
       'worklet';
+      if (drawing.value) {
+        if (e.numberOfPointers > 1) {
+          drawing.value = false;
+          stroke.value = [];
+          return;
+        }
+        const p = stroke.value;
+        const x = (e.x - tx.value) / s.value,
+          y = (e.y - ty.value) / s.value;
+        // nowy punkt co ok. 2 pt na ekranie
+        if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) * s.value >= 2) stroke.value = [...p, x, y];
+        return;
+      }
       tx.value += e.changeX;
       ty.value += e.changeY;
     },
-  });
-
-  // obrys palcem – punkty we współrzędnych zdjęcia
-  const stroke = useSharedValue<number[]>([]);
-  const onStrokeRef = useRef(onStroke);
-  onStrokeRef.current = onStroke;
-  const draw = usePanGesture({
-    enabled: drawEnabled,
-    maxPointers: 1,
-    minDistance: 4,
-    runOnJS: true,
-    onActivate: (e) => {
-      stroke.value = [(e.x - tx.value) / s.value, (e.y - ty.value) / s.value];
-    },
-    onUpdate: (e) => {
-      const p = stroke.value;
-      const x = (e.x - tx.value) / s.value,
-        y = (e.y - ty.value) / s.value;
-      const lx = p[p.length - 2],
-        ly = p[p.length - 1];
-      // nowy punkt co ok. 2 pt na ekranie
-      if (Math.hypot(x - lx, y - ly) * s.value >= 2) stroke.value = [...p, x, y];
-    },
     onDeactivate: (e) => {
+      'worklet';
+      if (!drawing.value) return;
+      drawing.value = false;
       const p = stroke.value;
       stroke.value = [];
-      if (e.canceled || p.length < 6) return;
-      const pts: Point[] = [];
-      for (let i = 0; i < p.length; i += 2) pts.push([p[i], p[i + 1]]);
-      onStrokeRef.current(pts);
+      if (!e.canceled && p.length >= 6) scheduleOnRN(finishStroke, p);
     },
   });
 
@@ -176,7 +193,7 @@ const WallView = forwardRef<WallViewHandle, Props>(function WallView(
     },
   });
 
-  const gesture = useSimultaneousGestures(pinch, pan, draw, tap);
+  const gesture = useSimultaneousGestures(pinch, pan, tap);
 
   const transform = useDerivedValue(() => [
     { translateX: tx.value },
