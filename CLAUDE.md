@@ -29,6 +29,7 @@ Pełny plan (funkcje, etapy, model danych, ryzyka) jest w dokumencie „Aplikacj
 - **Pytania do autora są jawne, odpowiedzi zakryte.** Wyjątek: odpowiedź oznaczona przez autora jako zasada (np. „paczka dozwolona”) jest jawna i trafia do zasad balda. Pytający może zakryć pytanie, jeśli zdradza rozwiązanie.
 - **Przekrętki:** jeśli ścianka ma harmonogram, przy baldzie widać, ile czasu zostało; po przekrętce bald idzie do archiwum.
 - **Typy chwytów:** start, ręka, stopa, top. Kontur zapisywany jako wielokąt we współrzędnych zdjęcia (nie bitmapa). Zaznaczenie automatyczne (tapnięcie) albo ręczne (obrys palcem).
+- **Chwyt może mieć kilka obrysów** („Dołącz” – dwukolorowe chwyty, donuty, płytka ze strzałką) i **komentarz autora** (do 200 znaków, np. „w wariancie trudniejszym bez tego chwytu”, „tylko śliska część”).
 - **Moderacja od MVP:** zgłaszanie treści i użytkowników, blokowanie, panel moderacji (wytyczna App Store 1.2).
 - **Usunięcie konta** w aplikacji i przez stronę www (Google Play, App Store).
 
@@ -58,7 +59,7 @@ Pilotaż: Obiekto, Warszawa (formacje: Comp Wall, Spraywall, Pion, Zetka, Zietka
 
 ## Główne tabele (PostgreSQL)
 
-users, follows, blocks, gyms (status: społecznościowa / zweryfikowana, lokalizacja PostGIS), gym_admins, formations, grade_scales, grades, boulders (autor, gym, formation opcjonalnie, grade, widoczność, status: szkic/aktywny/archiwum, ważny_do), boulder_photos, boulder_holds (typ, wielokąt, auto/ręczny), boulder_rules, boulder_groups, ascents, comments (rodzaj, beta, zasada, odpowiedź_do), media, groups, group_members (rola, status: zaproszony/aktywny), reset_schedules, gym_posts, reports, notifications.
+users, follows, blocks, gyms (status: społecznościowa / zweryfikowana, lokalizacja PostGIS), gym_admins, formations, grade_scales, grades, boulders (autor, gym, formation opcjonalnie, grade, widoczność, status: szkic/aktywny/archiwum, ważny_do), boulder_photos, boulder_holds (typ, wielokąty – jeden lub więcej, auto/ręczny, komentarz), boulder_rules, boulder_groups, ascents, comments (rodzaj, beta, zasada, odpowiedź_do), media, groups, group_members (rola, status: zaproszony/aktywny), reset_schedules, gym_posts, reports, notifications.
 
 ## Zasady pracy
 
